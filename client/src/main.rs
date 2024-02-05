@@ -1,12 +1,7 @@
 use std::{
-    collections::{BTreeMap, HashMap},
-    env,
+    collections::BTreeMap,
     io::{self, stdout},
-    sync::{
-        mpsc::{channel, Receiver, Sender},
-        Arc, Mutex,
-    },
-    thread,
+    sync::mpsc::{channel, Receiver, Sender},
     time::Duration,
 };
 
@@ -19,126 +14,30 @@ use crossterm::{
 };
 use ratatui::{
     prelude::*,
-    widgets::{Row, Table, TableState},
+    widgets::{Block, Borders, Row, Table},
 };
 
-use graph_oauth::oauth::{AccessToken, IdToken, OAuth};
 use reqwest::Client;
-use tokio::{runtime, task};
-use warp::Filter;
+use tokio::runtime;
 
 use dotenv::dotenv;
 
 mod outlook;
 use outlook::Root;
 
+mod auth;
+use auth::start_server_main;
+
 #[derive(Default, Clone)]
 struct CalendarEvent {
-    start_time: DateTime<Utc>,
     end_time: DateTime<Utc>,
+    start_time: DateTime<Utc>,
     subject: String,
 }
 
 struct App {
-    auth_token: Option<String>,
-    show_table: bool,
     events: BTreeMap<DateTime<Utc>, CalendarEvent>,
-}
-
-fn oauth_open_id() -> OAuth {
-    let mut oauth = OAuth::new();
-    oauth
-        .client_id(
-            env::var("CLIENT_ID")
-                .expect("No CLIENT_ID provided")
-                .as_ref(),
-        )
-        .authorize_url("https://login.microsoftonline.com/common/oauth2/v2.0/authorize")
-        .redirect_uri("http://localhost:8000/redirect")
-        .access_token_url("https://login.microsoftonline.com/common/oauth2/v2.0/token")
-        .refresh_token_url("https://login.microsoftonline.com/common/oauth2/v2.0/token")
-        .response_type("id_token code")
-        .response_mode("form_post")
-        .add_scope("openid")
-        .add_scope("Calendars.ReadBasic")
-        .add_scope("offline_access")
-        .nonce("7362CAEA-9CA5")
-        .prompt("consent")
-        .state("12345");
-    oauth
-}
-
-async fn handle_redirect(
-    id_token: IdToken,
-    tx: Sender<String>,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
-    // println!("Received IdToken: {id_token:#?}");
-
-    let mut oauth = oauth_open_id();
-
-    // Pass the id token to the oauth client.
-    oauth.id_token(id_token);
-
-    // Build the request to get an access token using open id connect.
-    let mut request = oauth.build_async().open_id_connect();
-
-    // Request an access token.
-    let response = request.access_token().send().await.unwrap();
-    // println!("{response:#?}");
-
-    if response.status().is_success() {
-        let access_token: AccessToken = response.json().await.unwrap();
-
-        // You can optionally pass the access token to the oauth client in order
-        // to use a refresh token to get more access tokens. The refresh token
-        // is stored in AccessToken.
-        let bearer_token = access_token.bearer_token();
-        tx.send(bearer_token.to_string())
-            .expect("ERROR: Could not send token between threads!");
-        oauth.access_token(access_token);
-
-        // If all went well here we can print out the OAuth config with the Access Token.
-        // println!("OAuth:\n{:#?}\n", &oauth);
-    } else {
-        // See if Microsoft Graph returned an error in the Response body
-        // let result: reqwest::Result<serde::Value> = response.json().await;
-        // println!("{result:#?}");
-    }
-
-    // Generic login page response.
-    Ok(Box::new(
-        "Successfully Logged In! You can close your browser.",
-    ))
-}
-
-pub async fn start_server_main(tx: Sender<String>) {
-    let cors = warp::cors().allow_any_origin();
-
-    let routes = warp::post()
-        .and(warp::path("redirect"))
-        .and(warp::body::form())
-        .map(|simple_map: HashMap<String, String>| {
-            IdToken::new(
-                simple_map.get("id_token").expect("No id_token returned"),
-                simple_map.get("code").expect("No code returned"),
-                simple_map.get("state").expect("No state returned"),
-                simple_map
-                    .get("session_state")
-                    .expect("No session_state returned"),
-            )
-        })
-        .and_then(move |id_token| {
-            let tx = tx.clone();
-            handle_redirect(id_token, tx)
-        })
-        .with(cors);
-
-    // Get the oauth client and request a browser sign in.
-    let mut oauth = oauth_open_id();
-    let mut request = oauth.build_async().open_id_connect();
-    request.browser_authorization().open().unwrap();
-
-    warp::serve(routes).run(([127, 0, 0, 1], 8000)).await;
+    show_table: bool,
 }
 
 fn main() -> io::Result<()> {
@@ -185,21 +84,13 @@ fn main() -> io::Result<()> {
 
     // App
     let app = App {
-        auth_token: None,
         show_table: false,
         events: BTreeMap::new(),
     };
 
     let (tx_event, rx_event) = channel();
     let client = Client::new();
-
     outlook_thread.spawn(async move { refresh(token, start_arg, end_arg, client, tx_event).await });
-    // tokio::task::spawn(async move {
-    //     let client = client.clone();
-    //     refresh(token, start_arg, end_arg, client, tx_event).await;
-    // })
-    // .await
-    // .unwrap();
 
     run_app(&mut terminal, app, rx_event).unwrap();
 
@@ -260,9 +151,10 @@ async fn refresh(
                 })
                 .filter(|e| e.start_time > Utc::now());
 
-            calendar_events.for_each(|e| {
-                tx.send(e).expect("ERROR: Could not send event to UI");
-            });
+            for event in calendar_events {
+                tx.send(event)
+                    .expect("ERROR: Could not send to main thread");
+            }
         };
     }
 }
@@ -273,39 +165,42 @@ fn run_app<B: Backend>(
     rx: Receiver<CalendarEvent>,
 ) -> io::Result<()> {
     loop {
-        let e = rx.try_recv();
-        if let Ok(event) = e {
-            _ = app.events.insert(event.start_time.clone(), event);
-        }
-
         terminal.draw(|f| ui(f, &app))?;
 
-        // rx.try_iter().for_each(|e| {
-        //     println!("Received something");
-        //     _ = app.events.insert(e.start_time.clone(), e);
-        // });
-
-        if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Char('q') => return Ok(()),
-                    KeyCode::Char('p') => app.show_table = !app.show_table,
-                    _ => {}
+        match event::poll(Duration::from_millis(50)) {
+            Ok(true) => match event::read()? {
+                Event::Key(key) => {
+                    if key.kind == KeyEventKind::Press {
+                        match key.code {
+                            KeyCode::Char('q') => return Ok(()),
+                            KeyCode::Char('p') => app.show_table = !app.show_table,
+                            _ => {}
+                        }
+                    }
                 }
-            }
+                _ => {}
+            },
+            _ => {}
+        }
+
+        while let Some(event) = rx.try_iter().next() {
+            app.events.insert(event.start_time.clone(), event);
         }
     }
 }
 
 fn ui(frame: &mut Frame, app: &App) {
+    let layout = Layout::horizontal([Constraint::Percentage(100)])
+        .flex(layout::Flex::SpaceBetween)
+        .split(frame.size());
+
     let rows = app
         .events
         .iter()
         .map(|(time, e)| Row::new(vec![time.to_string(), e.subject.clone()]));
 
-    let widths = (0..app.events.len()).map(|_| Constraint::Length(60));
+    let widths = [Constraint::Length(100), Constraint::Length(100)];
     let table = Table::new(rows, widths);
-    frame.render_widget(table, frame.size());
-    // let n = app.events.len();
-    // frame.render_widget(Text::raw(format!("{}", n)), frame.size());
+    let block = Block::default().title("Events").borders(Borders::ALL);
+    frame.render_widget(table.block(block), layout[0]);
 }
