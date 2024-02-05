@@ -193,12 +193,13 @@ dependencies = [
 name = "client"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "crossterm",
  "dotenv",
  "graph-oauth",
  "ratatui",
  "reqwest",
- "serde_json",
+ "serde",
  "tokio",
  "warp",
 ]
