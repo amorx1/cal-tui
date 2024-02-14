@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use chrono::{prelude::*, Days};
+use chrono::{prelude::*, Days, Duration as ChronoDuration};
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -29,11 +29,13 @@ mod auth;
 use auth::start_server_main;
 use style::palette::tailwind;
 
-const PALETTES: [tailwind::Palette; 4] = [
+const PALETTES: [tailwind::Palette; 6] = [
     tailwind::BLUE,
     tailwind::EMERALD,
     tailwind::INDIGO,
     tailwind::RED,
+    tailwind::AMBER,
+    tailwind::ROSE,
 ];
 
 #[derive(Default, Clone)]
@@ -65,14 +67,6 @@ impl TableColors {
             normal_row_color: color.c950,
             alt_row_color: color.c900,
             footer_border_color: color.c400,
-            // buffer_bg: tailwind::SLATE.c950,
-            // header_bg: color.c900,
-            // header_fg: tailwind::SLATE.c200,
-            // row_fg: tailwind::SLATE.c200,
-            // selected_style_fg: color.c400,
-            // normal_row_color: tailwind::SLATE.c950,
-            // alt_row_color: tailwind::SLATE.c900,
-            // footer_border_color: color.c400,
         }
     }
 }
@@ -156,7 +150,7 @@ fn main() -> io::Result<()> {
     // App
     let app = App {
         events: BTreeMap::new(),
-        colors: TableColors::new(&PALETTES[2]),
+        colors: TableColors::new(&PALETTES[5]),
         state: TableState::default().with_selected(0),
     };
 
@@ -210,13 +204,23 @@ fn ui(frame: &mut Frame, app: &mut App) {
     let selected_style = Style::default()
         .add_modifier(Modifier::REVERSED)
         .fg(app.colors.selected_style_fg);
-    let header = ["Event", "Start Time", "Duration"]
-        .iter()
-        .cloned()
-        .map(Cell::from)
-        .collect::<Row>()
-        .style(header_style)
-        .height(2);
+    let header = [
+        Text::from("Event")
+            .style(Style::default().bold())
+            .alignment(Alignment::Center),
+        Text::from("Start Time")
+            .style(Style::default().bold())
+            .alignment(Alignment::Center),
+        Text::from("Duration")
+            .style(Style::default().bold())
+            .alignment(Alignment::Center),
+    ]
+    .iter()
+    .cloned()
+    .map(Cell::from)
+    .collect::<Row>()
+    .style(header_style)
+    .height(2);
 
     let rows = app.events.iter().enumerate().map(|(i, (time, e))| {
         let color = match i % 2 {
@@ -225,10 +229,15 @@ fn ui(frame: &mut Frame, app: &mut App) {
         };
 
         let duration = &e.end_time.signed_duration_since(time).num_minutes();
+        let subject = e.subject.clone();
+        let (date, time) = reformat_time(time);
+
         Row::new(vec![
-            e.subject.clone(),
-            time.to_string(),
-            format!("{duration:?} mins"),
+            Text::from(subject)
+                .style(Style::default().bold())
+                .alignment(Alignment::Center),
+            Text::from(format!("{date:?} @ {time:?}")).alignment(Alignment::Center),
+            Text::from(format!("{duration:?} mins")).alignment(Alignment::Center),
         ])
         .style(Style::new().fg(app.colors.row_fg).bg(color))
         .height(4)
@@ -243,5 +252,23 @@ fn ui(frame: &mut Frame, app: &mut App) {
         .header(header)
         .bg(app.colors.buffer_bg)
         .highlight_style(selected_style);
+
     frame.render_stateful_widget(table, layout[0], &mut app.state);
+}
+
+fn reformat_time(dt: &DateTime<Utc>) -> (String, String) {
+    let mut day = String::new();
+    dt.date_naive()
+        .to_string()
+        .split('-')
+        .rev()
+        .for_each(|p| day.push_str(format!("{}-", p).as_ref()));
+
+    let time = dt
+        .time()
+        .overflowing_add_signed(ChronoDuration::hours(13))
+        .0
+        .to_string();
+
+    (day.trim_end_matches('-').to_string(), time)
 }
