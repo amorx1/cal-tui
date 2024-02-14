@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     io::{self, stdout},
-    sync::mpsc::{channel, Receiver, Sender},
+    sync::mpsc::{channel, Receiver},
     time::Duration,
 };
 
@@ -14,7 +14,7 @@ use crossterm::{
 };
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Row, Table},
+    widgets::{Cell, Row, Table, TableState},
 };
 
 use reqwest::Client;
@@ -23,10 +23,18 @@ use tokio::runtime;
 use dotenv::dotenv;
 
 mod outlook;
-use outlook::Root;
+use outlook::refresh;
 
 mod auth;
 use auth::start_server_main;
+use style::palette::tailwind;
+
+const PALETTES: [tailwind::Palette; 4] = [
+    tailwind::BLUE,
+    tailwind::EMERALD,
+    tailwind::INDIGO,
+    tailwind::RED,
+];
 
 #[derive(Default, Clone)]
 struct CalendarEvent {
@@ -35,9 +43,74 @@ struct CalendarEvent {
     subject: String,
 }
 
+struct TableColors {
+    buffer_bg: Color,
+    header_bg: Color,
+    header_fg: Color,
+    row_fg: Color,
+    selected_style_fg: Color,
+    normal_row_color: Color,
+    alt_row_color: Color,
+    footer_border_color: Color,
+}
+
+impl TableColors {
+    fn new(color: &tailwind::Palette) -> Self {
+        Self {
+            buffer_bg: color.c950,
+            header_bg: color.c900,
+            header_fg: color.c200,
+            row_fg: color.c200,
+            selected_style_fg: color.c400,
+            normal_row_color: color.c950,
+            alt_row_color: color.c900,
+            footer_border_color: color.c400,
+            // buffer_bg: tailwind::SLATE.c950,
+            // header_bg: color.c900,
+            // header_fg: tailwind::SLATE.c200,
+            // row_fg: tailwind::SLATE.c200,
+            // selected_style_fg: color.c400,
+            // normal_row_color: tailwind::SLATE.c950,
+            // alt_row_color: tailwind::SLATE.c900,
+            // footer_border_color: color.c400,
+        }
+    }
+}
+
 struct App {
+    state: TableState,
     events: BTreeMap<DateTime<Utc>, CalendarEvent>,
-    show_table: bool,
+    colors: TableColors,
+}
+
+impl App {
+    pub fn next(&mut self) {
+        let i = match self.state.selected() {
+            Some(i) => {
+                if i >= self.events.len() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.state.select(Some(i));
+    }
+
+    pub fn previous(&mut self) {
+        let i = match self.state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    self.events.len() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.state.select(Some(i));
+    }
 }
 
 fn main() -> io::Result<()> {
@@ -51,15 +124,13 @@ fn main() -> io::Result<()> {
         .worker_threads(1)
         .thread_name("warp")
         .enable_all()
-        .build()
-        .unwrap();
+        .build()?;
 
     let outlook_thread = runtime::Builder::new_multi_thread()
         .worker_threads(1)
         .thread_name("outlook")
         .enable_all()
-        .build()
-        .unwrap();
+        .build()?;
 
     // Authentication
     let (tx, rx) = channel();
@@ -73,19 +144,20 @@ fn main() -> io::Result<()> {
 
     let start_arg = format!(
         "{}T{}",
-        start.date_naive().to_string(),
+        start.date_naive(),
         start.time().to_string().rsplit_once(':').unwrap().0,
     );
     let end_arg = format!(
         "{}T{}",
-        end.date_naive().to_string(),
+        end.date_naive(),
         start.time().to_string().rsplit_once(':').unwrap().0,
     );
 
     // App
     let app = App {
-        show_table: false,
         events: BTreeMap::new(),
+        colors: TableColors::new(&PALETTES[2]),
+        state: TableState::default().with_selected(0),
     };
 
     let (tx_event, rx_event) = channel();
@@ -96,67 +168,8 @@ fn main() -> io::Result<()> {
 
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;
+
     Ok(())
-}
-
-async fn refresh(
-    token: String,
-    start: String,
-    end: String,
-    client: Client,
-    tx: Sender<CalendarEvent>,
-) {
-    loop {
-        let url = format!(
-            "https://graph.microsoft.com/v1.0/me/calendarView?startDateTime={}&endDateTime={}",
-            start, end
-        );
-
-        if Utc::now().second() % 10 == 0 {
-            // refresh
-            let response = client
-                .get(url)
-                .header("Authorization", format!("Bearer {}", token))
-                .send()
-                .await
-                .unwrap()
-                .json::<Root>()
-                .await
-                .unwrap();
-
-            let calendar_events = response
-                .value
-                .iter()
-                .map(|v| {
-                    let start_time_string =
-                        String::from(format!("{}+0000", v.start.date_time.clone().unwrap()));
-                    let start_time =
-                        DateTime::parse_from_str(&start_time_string, "%Y-%m-%dT%H:%M:%S%.f%z")
-                            .ok()
-                            .and_then(|dt| Some(dt.with_timezone(&Utc::now().timezone())))
-                            .unwrap();
-                    let end_time_string =
-                        String::from(format!("{}+0000", v.end.date_time.clone().unwrap()));
-                    let end_time =
-                        DateTime::parse_from_str(&end_time_string, "%Y-%m-%dT%H:%M:%S%.f%z")
-                            .ok()
-                            .and_then(|dt| Some(dt.with_timezone(&Utc::now().timezone())))
-                            .unwrap();
-
-                    CalendarEvent {
-                        start_time,
-                        end_time,
-                        subject: v.subject.clone().unwrap(),
-                    }
-                })
-                .filter(|e| e.start_time > Utc::now());
-
-            for event in calendar_events {
-                tx.send(event)
-                    .expect("ERROR: Could not send to main thread");
-            }
-        };
-    }
 }
 
 fn run_app<B: Backend>(
@@ -165,42 +178,70 @@ fn run_app<B: Backend>(
     rx: Receiver<CalendarEvent>,
 ) -> io::Result<()> {
     loop {
-        terminal.draw(|f| ui(f, &app))?;
+        terminal.draw(|f| ui(f, &mut app))?;
 
-        match event::poll(Duration::from_millis(50)) {
-            Ok(true) => match event::read()? {
-                Event::Key(key) => {
-                    if key.kind == KeyEventKind::Press {
-                        match key.code {
-                            KeyCode::Char('q') => return Ok(()),
-                            KeyCode::Char('p') => app.show_table = !app.show_table,
-                            _ => {}
-                        }
+        if let Ok(true) = event::poll(Duration::from_millis(50)) {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    match key.code {
+                        KeyCode::Char('q') => return Ok(()),
+                        KeyCode::Char('j') | KeyCode::Down => app.next(),
+                        KeyCode::Char('k') | KeyCode::Up => app.previous(),
+                        _ => (),
                     }
                 }
-                _ => {}
-            },
-            _ => {}
+            }
         }
 
         while let Some(event) = rx.try_iter().next() {
-            app.events.insert(event.start_time.clone(), event);
+            app.events.insert(event.start_time, event);
         }
     }
 }
 
-fn ui(frame: &mut Frame, app: &App) {
+fn ui(frame: &mut Frame, app: &mut App) {
     let layout = Layout::horizontal([Constraint::Percentage(100)])
         .flex(layout::Flex::SpaceBetween)
         .split(frame.size());
 
-    let rows = app
-        .events
+    let header_style = Style::default()
+        .fg(app.colors.header_fg)
+        .bg(app.colors.header_bg);
+    let selected_style = Style::default()
+        .add_modifier(Modifier::REVERSED)
+        .fg(app.colors.selected_style_fg);
+    let header = ["Event", "Start Time", "Duration"]
         .iter()
-        .map(|(time, e)| Row::new(vec![time.to_string(), e.subject.clone()]));
+        .cloned()
+        .map(Cell::from)
+        .collect::<Row>()
+        .style(header_style)
+        .height(2);
 
-    let widths = [Constraint::Length(100), Constraint::Length(100)];
-    let table = Table::new(rows, widths);
-    let block = Block::default().title("Events").borders(Borders::ALL);
-    frame.render_widget(table.block(block), layout[0]);
+    let rows = app.events.iter().enumerate().map(|(i, (time, e))| {
+        let color = match i % 2 {
+            0 => app.colors.normal_row_color,
+            _ => app.colors.alt_row_color,
+        };
+
+        let duration = &e.end_time.signed_duration_since(time).num_minutes();
+        Row::new(vec![
+            e.subject.clone(),
+            time.to_string(),
+            format!("{duration:?} mins"),
+        ])
+        .style(Style::new().fg(app.colors.row_fg).bg(color))
+        .height(4)
+    });
+
+    let widths = [
+        Constraint::Length(100),
+        Constraint::Length(100),
+        Constraint::Length(100),
+    ];
+    let table = Table::new(rows, widths)
+        .header(header)
+        .bg(app.colors.buffer_bg)
+        .highlight_style(selected_style);
+    frame.render_stateful_widget(table, layout[0], &mut app.state);
 }

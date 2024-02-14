@@ -1,5 +1,68 @@
+use std::sync::mpsc::Sender;
+
+use chrono::{DateTime, Timelike, Utc};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+use crate::CalendarEvent;
+
+pub async fn refresh(
+    token: String,
+    start: String,
+    end: String,
+    client: Client,
+    tx: Sender<CalendarEvent>,
+) {
+    loop {
+        let url = format!(
+            "https://graph.microsoft.com/v1.0/me/calendarView?startDateTime={}&endDateTime={}",
+            start, end
+        );
+
+        if Utc::now().second() % 10 == 0 {
+            // refresh
+            let response = client
+                .get(url)
+                .header("Authorization", format!("Bearer {}", token))
+                .send()
+                .await
+                .unwrap()
+                .json::<Root>()
+                .await
+                .unwrap();
+
+            let calendar_events = response
+                .value
+                .iter()
+                .map(|v| {
+                    let start_time_string = format!("{}+0000", v.start.date_time.clone().unwrap());
+                    let start_time =
+                        DateTime::parse_from_str(&start_time_string, "%Y-%m-%dT%H:%M:%S%.f%z")
+                            .ok()
+                            .map(|dt| dt.with_timezone(&Utc::now().timezone()))
+                            .unwrap();
+                    let end_time_string = format!("{}+0000", v.end.date_time.clone().unwrap());
+                    let end_time =
+                        DateTime::parse_from_str(&end_time_string, "%Y-%m-%dT%H:%M:%S%.f%z")
+                            .ok()
+                            .map(|dt| dt.with_timezone(&Utc::now().timezone()))
+                            .unwrap();
+
+                    CalendarEvent {
+                        start_time,
+                        end_time,
+                        subject: v.subject.clone().unwrap(),
+                    }
+                })
+                .filter(|e| e.start_time > Utc::now());
+
+            for event in calendar_events {
+                tx.send(event)
+                    .expect("ERROR: Could not send to main thread");
+            }
+        };
+    }
+}
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Root {
