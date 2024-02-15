@@ -1,4 +1,4 @@
-use std::sync::mpsc::Sender;
+use std::{sync::mpsc::Sender, time::Duration};
 
 use chrono::{DateTime, Timelike, Utc};
 use reqwest::Client;
@@ -11,7 +11,7 @@ pub async fn refresh(
     start: String,
     end: String,
     client: Client,
-    tx: Sender<CalendarEvent>,
+    event_tx: Sender<CalendarEvent>,
 ) {
     loop {
         let url = format!(
@@ -57,8 +57,9 @@ pub async fn refresh(
                 .filter(|e| e.start_time > Utc::now());
 
             for event in calendar_events {
-                tx.send(event)
-                    .expect("ERROR: Could not send to main thread");
+                event_tx
+                    .send(event)
+                    .expect("ERROR: Could not send event to main thread");
             }
         };
     }

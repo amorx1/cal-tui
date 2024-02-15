@@ -1,11 +1,10 @@
+use chrono::{prelude::*, Days, Duration as ChronoDuration};
 use std::{
     collections::BTreeMap,
     io::{self, stdout},
     sync::mpsc::{channel, Receiver},
     time::Duration,
 };
-
-use chrono::{prelude::*, Days, Duration as ChronoDuration};
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -14,11 +13,11 @@ use crossterm::{
 };
 use ratatui::{
     prelude::*,
-    widgets::{Cell, Row, Table, TableState},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState},
 };
 
 use reqwest::Client;
-use tokio::runtime;
+use tokio::{runtime, time::sleep};
 
 use dotenv::dotenv;
 
@@ -74,6 +73,7 @@ impl TableColors {
 struct App {
     state: TableState,
     events: BTreeMap<DateTime<Utc>, CalendarEvent>,
+    show_next: bool,
     colors: TableColors,
 }
 
@@ -127,9 +127,9 @@ fn main() -> io::Result<()> {
         .build()?;
 
     // Authentication
-    let (tx, rx) = channel();
-    server_thread.spawn(async move { start_server_main(tx).await });
-    let token = rx
+    let (auth_tx, auth_rx) = channel();
+    server_thread.spawn(async move { start_server_main(auth_tx).await });
+    let token = auth_rx
         .recv_timeout(Duration::from_millis(10000))
         .expect("ERROR: Unsuccessful authentication!");
 
@@ -152,13 +152,14 @@ fn main() -> io::Result<()> {
         events: BTreeMap::new(),
         colors: TableColors::new(&PALETTES[5]),
         state: TableState::default().with_selected(0),
+        show_next: false,
     };
 
-    let (tx_event, rx_event) = channel();
+    let (event_tx, event_rx) = channel();
     let client = Client::new();
-    outlook_thread.spawn(async move { refresh(token, start_arg, end_arg, client, tx_event).await });
+    outlook_thread.spawn(async move { refresh(token, start_arg, end_arg, client, event_tx).await });
 
-    run_app(&mut terminal, app, rx_event).unwrap();
+    run_app(&mut terminal, app, event_rx).unwrap();
 
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;
@@ -169,8 +170,14 @@ fn main() -> io::Result<()> {
 fn run_app<B: Backend>(
     terminal: &mut Terminal<B>,
     mut app: App,
-    rx: Receiver<CalendarEvent>,
+    event_rx: Receiver<CalendarEvent>,
 ) -> io::Result<()> {
+    let timer_thread = runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .thread_name("timer")
+        .enable_all()
+        .build()?;
+
     loop {
         terminal.draw(|f| ui(f, &mut app))?;
 
@@ -181,79 +188,106 @@ fn run_app<B: Backend>(
                         KeyCode::Char('q') => return Ok(()),
                         KeyCode::Char('j') | KeyCode::Down => app.next(),
                         KeyCode::Char('k') | KeyCode::Up => app.previous(),
+                        KeyCode::Enter => app.show_next = !app.show_next,
                         _ => (),
                     }
                 }
             }
         }
 
-        while let Some(event) = rx.try_iter().next() {
-            app.events.insert(event.start_time, event);
+        while let Some(event) = event_rx.try_iter().next() {
+            let eta = event
+                .start_time
+                .checked_sub_signed(ChronoDuration::minutes(15))
+                .map(|x| x.signed_duration_since(Utc::now()).num_milliseconds())
+                .unwrap();
+            if app.events.insert(event.start_time, event).is_none() {
+                timer_thread.spawn(async move {
+                    sleep(Duration::from_millis(eta as u64)).await;
+                    app.show_next = true;
+                });
+            }
         }
     }
 }
 
 fn ui(frame: &mut Frame, app: &mut App) {
-    let layout = Layout::horizontal([Constraint::Percentage(100)])
-        .flex(layout::Flex::SpaceBetween)
-        .split(frame.size());
+    let area = frame.size();
 
-    let header_style = Style::default()
-        .fg(app.colors.header_fg)
-        .bg(app.colors.header_bg);
-    let selected_style = Style::default()
-        .add_modifier(Modifier::REVERSED)
-        .fg(app.colors.selected_style_fg);
-    let header = [
-        Text::from("Event")
-            .style(Style::default().bold())
-            .alignment(Alignment::Center),
-        Text::from("Start Time")
-            .style(Style::default().bold())
-            .alignment(Alignment::Center),
-        Text::from("Duration")
-            .style(Style::default().bold())
-            .alignment(Alignment::Center),
-    ]
-    .iter()
-    .cloned()
-    .map(Cell::from)
-    .collect::<Row>()
-    .style(header_style)
-    .height(2);
+    match app.show_next {
+        true => {
+            let block = Block::default().title("Popup").borders(Borders::ALL);
+            let mut text = Paragraph::new("");
+            if let Some((_time, event)) = app.events.first_key_value() {
+                text = Paragraph::new(event.subject.clone());
+            }
+            let area = centered_rect(60, 20, area);
+            frame.render_widget(Clear, area); //this clears out the background
+            frame.render_widget(text.block(block).on_red(), area);
+        }
+        false => {
+            let layout = Layout::horizontal([Constraint::Percentage(100)])
+                .flex(layout::Flex::SpaceBetween)
+                .split(area);
 
-    let rows = app.events.iter().enumerate().map(|(i, (time, e))| {
-        let color = match i % 2 {
-            0 => app.colors.normal_row_color,
-            _ => app.colors.alt_row_color,
-        };
+            let header_style = Style::default()
+                .fg(app.colors.header_fg)
+                .bg(app.colors.header_bg);
+            let selected_style = Style::default()
+                .add_modifier(Modifier::REVERSED)
+                .fg(app.colors.selected_style_fg);
+            let header = [
+                Text::from("Event")
+                    .style(Style::default().bold())
+                    .alignment(Alignment::Center),
+                Text::from("Start Time")
+                    .style(Style::default().bold())
+                    .alignment(Alignment::Center),
+                Text::from("Duration")
+                    .style(Style::default().bold())
+                    .alignment(Alignment::Center),
+            ]
+            .iter()
+            .cloned()
+            .map(Cell::from)
+            .collect::<Row>()
+            .style(header_style)
+            .height(2);
 
-        let duration = &e.end_time.signed_duration_since(time).num_minutes();
-        let subject = e.subject.clone();
-        let (date, time) = reformat_time(time);
+            let rows = app.events.iter().enumerate().map(|(i, (time, e))| {
+                let color = match i % 2 {
+                    0 => app.colors.normal_row_color,
+                    _ => app.colors.alt_row_color,
+                };
 
-        Row::new(vec![
-            Text::from(subject)
-                .style(Style::default().bold())
-                .alignment(Alignment::Center),
-            Text::from(format!("{date:?} @ {time:?}")).alignment(Alignment::Center),
-            Text::from(format!("{duration:?} mins")).alignment(Alignment::Center),
-        ])
-        .style(Style::new().fg(app.colors.row_fg).bg(color))
-        .height(4)
-    });
+                let duration = &e.end_time.signed_duration_since(time).num_minutes();
+                let subject = e.subject.clone();
+                let (date, time) = reformat_time(time);
 
-    let widths = [
-        Constraint::Length(100),
-        Constraint::Length(100),
-        Constraint::Length(100),
-    ];
-    let table = Table::new(rows, widths)
-        .header(header)
-        .bg(app.colors.buffer_bg)
-        .highlight_style(selected_style);
+                Row::new(vec![
+                    Text::from(subject)
+                        .style(Style::default().bold())
+                        .alignment(Alignment::Center),
+                    Text::from(format!("{date:?} @ {time:?}")).alignment(Alignment::Center),
+                    Text::from(format!("{duration:?} mins")).alignment(Alignment::Center),
+                ])
+                .style(Style::new().fg(app.colors.row_fg).bg(color))
+                .height(3)
+            });
 
-    frame.render_stateful_widget(table, layout[0], &mut app.state);
+            let widths = [
+                Constraint::Length(100),
+                Constraint::Length(100),
+                Constraint::Length(50),
+            ];
+            let table = Table::new(rows, widths)
+                .header(header)
+                .bg(app.colors.buffer_bg)
+                .highlight_style(selected_style);
+
+            frame.render_stateful_widget(table, layout[0], &mut app.state);
+        }
+    }
 }
 
 fn reformat_time(dt: &DateTime<Utc>) -> (String, String) {
@@ -271,4 +305,20 @@ fn reformat_time(dt: &DateTime<Utc>) -> (String, String) {
         .to_string();
 
     (day.trim_end_matches('-').to_string(), time)
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::vertical([
+        Constraint::Percentage((100 - percent_y) / 2),
+        Constraint::Percentage(percent_y),
+        Constraint::Percentage((100 - percent_y) / 2),
+    ])
+    .split(r);
+
+    Layout::horizontal([
+        Constraint::Percentage((100 - percent_x) / 2),
+        Constraint::Percentage(percent_x),
+        Constraint::Percentage((100 - percent_x) / 2),
+    ])
+    .split(popup_layout[1])[1]
 }

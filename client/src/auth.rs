@@ -21,7 +21,7 @@ pub fn oauth_open_id() -> OAuth {
         .add_scope("Calendars.ReadBasic")
         .add_scope("offline_access")
         .nonce("7362CAEA-9CA5")
-        .prompt("consent")
+        .prompt("none")
         .state("12345");
     oauth
 }
