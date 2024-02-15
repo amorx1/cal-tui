@@ -3,6 +3,7 @@ use std::{sync::mpsc::Sender, time::Duration};
 use chrono::{DateTime, Timelike, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use tokio::time::sleep;
 
 use crate::CalendarEvent;
 
@@ -62,6 +63,8 @@ pub async fn refresh(
                     .expect("ERROR: Could not send event to main thread");
             }
         };
+
+        sleep(Duration::from_millis(16)).await;
     }
 }
 #[derive(Serialize, Deserialize)]
