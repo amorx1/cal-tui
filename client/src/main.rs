@@ -11,6 +11,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
+
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState},
@@ -198,7 +199,7 @@ fn run_app<B: Backend>(
         while let Some(event) = event_rx.try_iter().next() {
             let eta = event
                 .start_time
-                .checked_sub_signed(ChronoDuration::minutes(15))
+                .checked_sub_signed(ChronoDuration::minutes(2))
                 .map(|x| x.signed_duration_since(Utc::now()).num_milliseconds())
                 .unwrap();
             if app.events.insert(event.start_time, event).is_none() {
