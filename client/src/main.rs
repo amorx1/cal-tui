@@ -37,7 +37,7 @@ const PALETTES: [tailwind::Palette; 6] = [
     tailwind::ROSE,
 ];
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 struct CalendarEvent {
     end_time: DateTime<Utc>,
     start_time: DateTime<Utc>,
@@ -150,7 +150,7 @@ fn main() -> io::Result<()> {
     // App
     let app = App {
         events: BTreeMap::new(),
-        colors: TableColors::new(&PALETTES[5]),
+        colors: TableColors::new(&PALETTES[2]),
         state: TableState::default().with_selected(0),
         show_next: false,
     };
@@ -208,6 +208,8 @@ fn run_app<B: Backend>(
                 });
             }
         }
+
+        app.events.retain(|_, event| event.end_time > Utc::now());
     }
 }
 
