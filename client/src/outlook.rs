@@ -26,58 +26,59 @@ pub async fn refresh(
                 .get(url)
                 .header("Authorization", format!("Bearer {}", token))
                 .send()
-                .await
-                .unwrap()
-                .json::<Root>()
-                .await
-                .unwrap();
+                .await;
 
-            let calendar_events = response
-                .value
-                .iter()
-                .map(|v| {
-                    let start_time_string = format!("{}+0000", v.start.date_time.clone().unwrap());
-                    let start_time =
-                        DateTime::parse_from_str(&start_time_string, "%Y-%m-%dT%H:%M:%S%.f%z")
+            if let Ok(response) = response {
+                let res = response.json::<Root>().await;
+                if let Ok(res) = res {
+                    let calendar_events = res
+                        .value
+                        .iter()
+                        .map(|v| {
+                            let start_time_string =
+                                format!("{}+0000", v.start.date_time.clone().unwrap());
+                            let start_time = DateTime::parse_from_str(
+                                &start_time_string,
+                                "%Y-%m-%dT%H:%M:%S%.f%z",
+                            )
                             .ok()
                             .map(|dt| dt.with_timezone(&Utc::now().timezone()))
                             .unwrap();
-                    let end_time_string = format!("{}+0000", v.end.date_time.clone().unwrap());
-                    let end_time =
-                        DateTime::parse_from_str(&end_time_string, "%Y-%m-%dT%H:%M:%S%.f%z")
+                            let end_time_string =
+                                format!("{}+0000", v.end.date_time.clone().unwrap());
+                            let end_time = DateTime::parse_from_str(
+                                &end_time_string,
+                                "%Y-%m-%dT%H:%M:%S%.f%z",
+                            )
                             .ok()
                             .map(|dt| dt.with_timezone(&Utc::now().timezone()))
                             .unwrap();
-                    let id = v.id.clone().expect("ERROR: Event has no ID");
-                    let is_cancelled = v.is_cancelled;
-                    let organizer = v
-                        .organizer
-                        .email_address
-                        .name
-                        .clone()
-                        .expect("ERROR: Event has no organizer");
-                    let subject = v.subject.clone().expect("ERROR: Event has no subject");
+                            let id = v.id.clone().expect("ERROR: Event has no ID");
+                            let is_cancelled = v.is_cancelled;
+                            let organizer = v
+                                .organizer
+                                .email_address
+                                .name
+                                .clone()
+                                .expect("ERROR: Event has no organizer");
+                            let subject = v.subject.clone().expect("ERROR: Event has no subject");
 
-                    CalendarEvent {
-                        id,
-                        is_cancelled,
-                        start_time,
-                        end_time,
-                        subject,
-                        organizer,
+                            CalendarEvent {
+                                id,
+                                is_cancelled,
+                                start_time,
+                                end_time,
+                                subject,
+                                organizer,
+                            }
+                        })
+                        .filter(|e| e.start_time > Utc::now());
+
+                    for event in calendar_events {
+                        event_tx
+                            .send(Command::Add(event))
+                            .expect("ERROR: Could not send message to main thread");
                     }
-                })
-                .filter(|e| e.start_time > Utc::now());
-
-            for event in calendar_events {
-                if event.end_time < Utc::now() || event.is_cancelled {
-                    event_tx
-                        .send(Command::Remove(event))
-                        .expect("ERROR: Could not send message to main thread");
-                } else {
-                    event_tx
-                        .send(Command::Add(event))
-                        .expect("ERROR: Could not send message to main thread");
                 }
             }
         };

@@ -43,6 +43,13 @@ enum Command {
     Remove(CalendarEvent),
 }
 
+#[derive(Clone, Copy)]
+enum Focus {
+    Table,
+    Selected,
+    Popup,
+}
+
 #[derive(Debug, Default, Clone)]
 struct CalendarEvent {
     id: String,
@@ -81,12 +88,15 @@ impl TableColors {
 
 struct App {
     state: TableState,
-    events: BTreeMap<String, CalendarEvent>,
-    show_next: bool,
+    focus: Focus,
+    events: BTreeMap<DateTime<Utc>, CalendarEvent>,
     colors: TableColors,
 }
 
 impl App {
+    pub fn popup(&mut self) {
+        self.focus = Focus::Popup;
+    }
     pub fn next(&mut self) {
         let i = match self.state.selected() {
             Some(i) => {
@@ -148,7 +158,7 @@ fn main() -> io::Result<()> {
     let start_arg = format!(
         "{}T{}",
         start.date_naive(),
-        start.time().to_string().rsplit_once(':').unwrap().0,
+        start.time().to_string().rsplit_once(':').unwrap().0
     );
     let end_arg = format!(
         "{}T{}",
@@ -161,7 +171,7 @@ fn main() -> io::Result<()> {
         events: BTreeMap::new(),
         colors: TableColors::new(&PALETTES[2]),
         state: TableState::default().with_selected(0),
-        show_next: false,
+        focus: Focus::Table,
     };
 
     let (event_tx, event_rx) = channel();
@@ -187,6 +197,8 @@ fn run_app<B: Backend>(
         .enable_all()
         .build()?;
 
+    let (timer_tx, timer_rx) = channel::<bool>();
+
     loop {
         terminal.draw(|f| ui(f, &mut app))?;
 
@@ -197,7 +209,13 @@ fn run_app<B: Backend>(
                         KeyCode::Char('q') => return Ok(()),
                         KeyCode::Char('j') | KeyCode::Down => app.next(),
                         KeyCode::Char('k') | KeyCode::Up => app.previous(),
-                        KeyCode::Enter => app.show_next = !app.show_next,
+                        KeyCode::Enter => {
+                            app.focus = match app.focus {
+                                Focus::Table => Focus::Selected,
+                                Focus::Selected => Focus::Table,
+                                Focus::Popup => Focus::Table,
+                            }
+                        }
                         _ => (),
                     }
                 }
@@ -205,35 +223,44 @@ fn run_app<B: Backend>(
         }
 
         while let Some(command) = event_rx.try_iter().next() {
-            match command {
-                Command::Add(event) => {
-                    let eta = event
-                        .start_time
-                        .checked_sub_signed(ChronoDuration::minutes(2))
-                        .map(|x| x.signed_duration_since(Utc::now()).num_milliseconds())
-                        .unwrap();
-                    if app.events.insert(event.id.to_string(), event).is_none() {
-                        timer_thread.spawn(async move {
-                            sleep(Duration::from_millis(eta as u64)).await;
-                            app.show_next = true;
-                        });
-                    }
-                }
-                Command::Remove(event) => {
-                    app.events.remove_entry(&event.id);
+            if let Command::Add(event) = command {
+                let eta = event
+                    .start_time
+                    .checked_sub_signed(ChronoDuration::minutes(2))
+                    .map(|x| x.signed_duration_since(Utc::now()).num_milliseconds())
+                    .unwrap();
+                if app.events.insert(event.start_time, event).is_none() {
+                    let timer_tx = timer_tx.clone();
+                    timer_thread.spawn(async move {
+                        sleep(Duration::from_millis(eta as u64)).await;
+                        timer_tx
+                            .send(true)
+                            .expect("ERROR: Could not send timer notification");
+                    });
                 }
             }
         }
 
-        app.events.retain(|_, event| event.end_time > Utc::now());
+        if timer_rx.try_recv().is_ok() {
+            app.popup();
+        }
+
+        app.events.retain(|_, event| event.end_time >= Utc::now());
     }
 }
 
 fn ui(frame: &mut Frame, app: &mut App) {
     let area = frame.size();
 
-    match app.show_next {
-        true => {
+    match app.focus {
+        Focus::Popup => {
+            let block = Block::default().title("Event").borders(Borders::ALL);
+            let inner_area = centered_rect(60, 20, area);
+
+            frame.render_widget(Clear, area); //this clears out the background
+            frame.render_widget(block, inner_area);
+        }
+        Focus::Selected => {
             let block = Block::default().title("Event").borders(Borders::ALL);
             let i = app.state.selected().unwrap();
             let text = app
@@ -250,9 +277,9 @@ fn ui(frame: &mut Frame, app: &mut App) {
             let inner_area = centered_rect(60, 20, area);
             frame.render_widget(Clear, area); //this clears out the background
             frame.render_widget(Block::default().bg(Color::LightRed), area);
-            frame.render_widget(text.block(block).on_white(), inner_area);
+            frame.render_widget(text.block(block).on_black(), inner_area);
         }
-        false => {
+        Focus::Table => {
             let layout = Layout::horizontal([Constraint::Percentage(100)])
                 .flex(layout::Flex::SpaceBetween)
                 .split(area);
@@ -281,7 +308,7 @@ fn ui(frame: &mut Frame, app: &mut App) {
             .style(header_style)
             .height(2);
 
-            let rows = app.events.iter().enumerate().map(|(i, (id, e))| {
+            let rows = app.events.iter().enumerate().map(|(i, (_, e))| {
                 let color = match i % 2 {
                     0 => app.colors.normal_row_color,
                     _ => app.colors.alt_row_color,
@@ -289,7 +316,10 @@ fn ui(frame: &mut Frame, app: &mut App) {
 
                 let duration = &e.end_time.signed_duration_since(e.start_time).num_minutes();
                 let subject = e.subject.clone();
-                let (date, time) = reformat_time(&e.start_time);
+                // let (date, time) = reformat_time(&e.start_time);
+                let local_dt: DateTime<Local> = DateTime::from(e.start_time);
+                let date = local_dt.date_naive();
+                let time = local_dt.time();
 
                 Row::new(vec![
                     Text::from(subject)
