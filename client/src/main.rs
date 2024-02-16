@@ -2,6 +2,7 @@ use chrono::{prelude::*, Days, Duration as ChronoDuration};
 use std::{
     collections::BTreeMap,
     io::{self, stdout},
+    process::Command,
     sync::mpsc::{channel, Receiver},
     time::Duration,
 };
@@ -38,7 +39,7 @@ const PALETTES: [tailwind::Palette; 6] = [
     tailwind::ROSE,
 ];
 
-enum Command {
+enum EventCommand {
     Add(CalendarEvent),
     Remove(CalendarEvent),
 }
@@ -96,6 +97,10 @@ struct App {
 impl App {
     pub fn popup(&mut self) {
         self.focus = Focus::Popup;
+        _ = Command::new("zellij")
+            .args(["action", "toggle-floating-panes"])
+            .status()
+            .expect("ERROR: Could not send command to Zellij");
     }
     pub fn next(&mut self) {
         let i = match self.state.selected() {
@@ -189,7 +194,7 @@ fn main() -> io::Result<()> {
 fn run_app<B: Backend>(
     terminal: &mut Terminal<B>,
     mut app: App,
-    event_rx: Receiver<Command>,
+    event_rx: Receiver<EventCommand>,
 ) -> io::Result<()> {
     let timer_thread = runtime::Builder::new_multi_thread()
         .worker_threads(1)
@@ -223,7 +228,7 @@ fn run_app<B: Backend>(
         }
 
         while let Some(command) = event_rx.try_iter().next() {
-            if let Command::Add(event) = command {
+            if let EventCommand::Add(event) = command {
                 let eta = event
                     .start_time
                     .checked_sub_signed(ChronoDuration::minutes(2))
@@ -255,10 +260,20 @@ fn ui(frame: &mut Frame, app: &mut App) {
     match app.focus {
         Focus::Popup => {
             let block = Block::default().title("Event").borders(Borders::ALL);
-            let inner_area = centered_rect(60, 20, area);
+            let text = app
+                .events
+                .first_key_value()
+                .map_or(Paragraph::new(""), |(_, event)| {
+                    Paragraph::new(Text::styled(
+                        format!("{}\n{}", event.subject, event.organizer,),
+                        Style::default().fg(Color::Red).bold(),
+                    ))
+                });
 
+            let inner_area = centered_rect(60, 20, area);
             frame.render_widget(Clear, area); //this clears out the background
-            frame.render_widget(block, inner_area);
+            frame.render_widget(Block::default().bg(Color::LightRed), area);
+            frame.render_widget(text.block(block).on_black(), inner_area);
         }
         Focus::Selected => {
             let block = Block::default().title("Event").borders(Borders::ALL);
@@ -276,7 +291,7 @@ fn ui(frame: &mut Frame, app: &mut App) {
 
             let inner_area = centered_rect(60, 20, area);
             frame.render_widget(Clear, area); //this clears out the background
-            frame.render_widget(Block::default().bg(Color::LightRed), area);
+            frame.render_widget(Block::default().bg(Color::LightBlue), area);
             frame.render_widget(text.block(block).on_black(), inner_area);
         }
         Focus::Table => {

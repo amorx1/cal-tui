@@ -5,14 +5,14 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
-use crate::{CalendarEvent, Command};
+use crate::{CalendarEvent, Command, EventCommand};
 
 pub async fn refresh(
     token: String,
     start: String,
     end: String,
     client: Client,
-    event_tx: Sender<Command>,
+    event_tx: Sender<EventCommand>,
 ) {
     loop {
         let url = format!(
@@ -76,7 +76,7 @@ pub async fn refresh(
 
                     for event in calendar_events {
                         event_tx
-                            .send(Command::Add(event))
+                            .send(EventCommand::Add(event))
                             .expect("ERROR: Could not send message to main thread");
                     }
                 }
