@@ -5,14 +5,14 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
-use crate::CalendarEvent;
+use crate::{CalendarEvent, Command};
 
 pub async fn refresh(
     token: String,
     start: String,
     end: String,
     client: Client,
-    event_tx: Sender<CalendarEvent>,
+    event_tx: Sender<Command>,
 ) {
     loop {
         let url = format!(
@@ -48,19 +48,37 @@ pub async fn refresh(
                             .ok()
                             .map(|dt| dt.with_timezone(&Utc::now().timezone()))
                             .unwrap();
+                    let id = v.id.clone().expect("ERROR: Event has no ID");
+                    let is_cancelled = v.is_cancelled;
+                    let organizer = v
+                        .organizer
+                        .email_address
+                        .name
+                        .clone()
+                        .expect("ERROR: Event has no organizer");
+                    let subject = v.subject.clone().expect("ERROR: Event has no subject");
 
                     CalendarEvent {
+                        id,
+                        is_cancelled,
                         start_time,
                         end_time,
-                        subject: v.subject.clone().unwrap(),
+                        subject,
+                        organizer,
                     }
                 })
                 .filter(|e| e.start_time > Utc::now());
 
             for event in calendar_events {
-                event_tx
-                    .send(event)
-                    .expect("ERROR: Could not send event to main thread");
+                if event.end_time < Utc::now() || event.is_cancelled {
+                    event_tx
+                        .send(Command::Remove(event))
+                        .expect("ERROR: Could not send message to main thread");
+                } else {
+                    event_tx
+                        .send(Command::Add(event))
+                        .expect("ERROR: Could not send message to main thread");
+                }
             }
         };
 

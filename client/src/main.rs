@@ -38,10 +38,18 @@ const PALETTES: [tailwind::Palette; 6] = [
     tailwind::ROSE,
 ];
 
+enum Command {
+    Add(CalendarEvent),
+    Remove(CalendarEvent),
+}
+
 #[derive(Debug, Default, Clone)]
 struct CalendarEvent {
+    id: String,
+    is_cancelled: bool,
     end_time: DateTime<Utc>,
     start_time: DateTime<Utc>,
+    organizer: String,
     subject: String,
 }
 
@@ -73,7 +81,7 @@ impl TableColors {
 
 struct App {
     state: TableState,
-    events: BTreeMap<DateTime<Utc>, CalendarEvent>,
+    events: BTreeMap<String, CalendarEvent>,
     show_next: bool,
     colors: TableColors,
 }
@@ -171,7 +179,7 @@ fn main() -> io::Result<()> {
 fn run_app<B: Backend>(
     terminal: &mut Terminal<B>,
     mut app: App,
-    event_rx: Receiver<CalendarEvent>,
+    event_rx: Receiver<Command>,
 ) -> io::Result<()> {
     let timer_thread = runtime::Builder::new_multi_thread()
         .worker_threads(1)
@@ -196,17 +204,24 @@ fn run_app<B: Backend>(
             }
         }
 
-        while let Some(event) = event_rx.try_iter().next() {
-            let eta = event
-                .start_time
-                .checked_sub_signed(ChronoDuration::minutes(2))
-                .map(|x| x.signed_duration_since(Utc::now()).num_milliseconds())
-                .unwrap();
-            if app.events.insert(event.start_time, event).is_none() {
-                timer_thread.spawn(async move {
-                    sleep(Duration::from_millis(eta as u64)).await;
-                    app.show_next = true;
-                });
+        while let Some(command) = event_rx.try_iter().next() {
+            match command {
+                Command::Add(event) => {
+                    let eta = event
+                        .start_time
+                        .checked_sub_signed(ChronoDuration::minutes(2))
+                        .map(|x| x.signed_duration_since(Utc::now()).num_milliseconds())
+                        .unwrap();
+                    if app.events.insert(event.id.to_string(), event).is_none() {
+                        timer_thread.spawn(async move {
+                            sleep(Duration::from_millis(eta as u64)).await;
+                            app.show_next = true;
+                        });
+                    }
+                }
+                Command::Remove(event) => {
+                    app.events.remove_entry(&event.id);
+                }
             }
         }
 
@@ -219,14 +234,23 @@ fn ui(frame: &mut Frame, app: &mut App) {
 
     match app.show_next {
         true => {
-            let block = Block::default().title("Popup").borders(Borders::ALL);
-            let mut text = Paragraph::new("");
-            if let Some((_time, event)) = app.events.first_key_value() {
-                text = Paragraph::new(event.subject.clone());
-            }
-            let area = centered_rect(60, 20, area);
+            let block = Block::default().title("Event").borders(Borders::ALL);
+            let i = app.state.selected().unwrap();
+            let text = app
+                .events
+                .iter()
+                .nth(i)
+                .map_or(Paragraph::new(""), |(_, event)| {
+                    Paragraph::new(Text::styled(
+                        format!("{}\n{}", event.subject, event.organizer,),
+                        Style::default().fg(Color::Red).bold(),
+                    ))
+                });
+
+            let inner_area = centered_rect(60, 20, area);
             frame.render_widget(Clear, area); //this clears out the background
-            frame.render_widget(text.block(block).on_red(), area);
+            frame.render_widget(Block::default().bg(Color::LightRed), area);
+            frame.render_widget(text.block(block).on_white(), inner_area);
         }
         false => {
             let layout = Layout::horizontal([Constraint::Percentage(100)])
@@ -257,15 +281,15 @@ fn ui(frame: &mut Frame, app: &mut App) {
             .style(header_style)
             .height(2);
 
-            let rows = app.events.iter().enumerate().map(|(i, (time, e))| {
+            let rows = app.events.iter().enumerate().map(|(i, (id, e))| {
                 let color = match i % 2 {
                     0 => app.colors.normal_row_color,
                     _ => app.colors.alt_row_color,
                 };
 
-                let duration = &e.end_time.signed_duration_since(time).num_minutes();
+                let duration = &e.end_time.signed_duration_since(e.start_time).num_minutes();
                 let subject = e.subject.clone();
-                let (date, time) = reformat_time(time);
+                let (date, time) = reformat_time(&e.start_time);
 
                 Row::new(vec![
                     Text::from(subject)
