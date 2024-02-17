@@ -5,7 +5,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
-use crate::{CalendarEvent, Command, EventCommand};
+use crate::{CalendarEvent, EventCommand};
 
 pub async fn refresh(
     token: String,
@@ -63,6 +63,13 @@ pub async fn refresh(
                                 .expect("ERROR: Event has no organizer");
                             let subject = v.subject.clone().expect("ERROR: Event has no subject");
 
+                            let teams_meeting: Option<TeamsMeeting> = match v.is_online_meeting {
+                                true => Some(TeamsMeeting {
+                                    url: v.online_meeting_url.clone().unwrap_or("".to_string()),
+                                }),
+                                false => None,
+                            };
+
                             CalendarEvent {
                                 id,
                                 is_cancelled,
@@ -70,6 +77,7 @@ pub async fn refresh(
                                 end_time,
                                 subject,
                                 organizer,
+                                teams_meeting,
                             }
                         })
                         .filter(|e| e.start_time > Utc::now());
@@ -86,6 +94,11 @@ pub async fn refresh(
         sleep(Duration::from_millis(16)).await;
     }
 }
+#[derive(Debug, Default, Clone)]
+pub struct TeamsMeeting {
+    pub url: String,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Root {
@@ -127,7 +140,7 @@ pub struct Value {
     #[serde(rename = "type")]
     pub type_field: Option<String>,
     pub web_link: Option<String>,
-    pub online_meeting_url: Option<Option<String>>,
+    pub online_meeting_url: Option<String>,
     pub is_online_meeting: bool,
     pub online_meeting_provider: Option<String>,
     pub allow_new_time_proposals: bool,

@@ -24,7 +24,7 @@ use tokio::{runtime, time::sleep};
 use dotenv::dotenv;
 
 mod outlook;
-use outlook::refresh;
+use outlook::{refresh, TeamsMeeting};
 
 mod auth;
 use auth::start_server_main;
@@ -51,7 +51,7 @@ enum Focus {
     Popup,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 struct CalendarEvent {
     id: String,
     is_cancelled: bool,
@@ -59,6 +59,7 @@ struct CalendarEvent {
     start_time: DateTime<Utc>,
     organizer: String,
     subject: String,
+    teams_meeting: Option<TeamsMeeting>,
 }
 
 struct TableColors {
@@ -212,8 +213,14 @@ fn run_app<B: Backend>(
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') => return Ok(()),
-                        KeyCode::Char('j') | KeyCode::Down => app.next(),
-                        KeyCode::Char('k') | KeyCode::Up => app.previous(),
+                        KeyCode::Char('j') | KeyCode::Down => match app.focus {
+                            Focus::Table => app.next(),
+                            _ => {}
+                        },
+                        KeyCode::Char('k') | KeyCode::Up => match app.focus {
+                            Focus::Table => app.previous(),
+                            _ => {}
+                        },
                         KeyCode::Enter => {
                             app.focus = match app.focus {
                                 Focus::Table => Focus::Selected,
@@ -277,22 +284,31 @@ fn ui(frame: &mut Frame, app: &mut App) {
         }
         Focus::Selected => {
             let block = Block::default().title("Event").borders(Borders::ALL);
-            let i = app.state.selected().unwrap();
-            let text = app
-                .events
-                .iter()
-                .nth(i)
-                .map_or(Paragraph::new(""), |(_, event)| {
-                    Paragraph::new(Text::styled(
-                        format!("{}\n{}", event.subject, event.organizer,),
-                        Style::default().fg(Color::Red).bold(),
-                    ))
-                });
+            if let Some(i) = app.state.selected() {
+                let text = app
+                    .events
+                    .iter()
+                    .nth(i)
+                    .map_or(Paragraph::new(""), |(_, event)| {
+                        Paragraph::new(Text::styled(
+                            format!(
+                                "{}\n{}\n{}",
+                                event.subject,
+                                event.organizer,
+                                event
+                                    .teams_meeting
+                                    .clone()
+                                    .map_or("".to_string(), |meeting| meeting.url)
+                            ),
+                            Style::default().fg(Color::Red).bold(),
+                        ))
+                    });
 
-            let inner_area = centered_rect(60, 20, area);
-            frame.render_widget(Clear, area); //this clears out the background
-            frame.render_widget(Block::default().bg(Color::LightBlue), area);
-            frame.render_widget(text.block(block).on_black(), inner_area);
+                let inner_area = centered_rect(60, 20, area);
+                frame.render_widget(Clear, area); //this clears out the background
+                frame.render_widget(Block::default().bg(Color::LightBlue), area);
+                frame.render_widget(text.block(block).on_black(), inner_area);
+            }
         }
         Focus::Table => {
             let layout = Layout::horizontal([Constraint::Percentage(100)])
@@ -308,13 +324,13 @@ fn ui(frame: &mut Frame, app: &mut App) {
             let header = [
                 Text::from("Event")
                     .style(Style::default().bold())
-                    .alignment(Alignment::Center),
+                    .alignment(Alignment::Left),
                 Text::from("Start Time")
                     .style(Style::default().bold())
-                    .alignment(Alignment::Center),
+                    .alignment(Alignment::Left),
                 Text::from("Duration")
                     .style(Style::default().bold())
-                    .alignment(Alignment::Center),
+                    .alignment(Alignment::Left),
             ]
             .iter()
             .cloned()
@@ -339,9 +355,9 @@ fn ui(frame: &mut Frame, app: &mut App) {
                 Row::new(vec![
                     Text::from(subject)
                         .style(Style::default().bold())
-                        .alignment(Alignment::Center),
-                    Text::from(format!("{date:?} @ {time:?}")).alignment(Alignment::Center),
-                    Text::from(format!("{duration:?} mins")).alignment(Alignment::Center),
+                        .alignment(Alignment::Left),
+                    Text::from(format!("{date:?} @ {time:?}")).alignment(Alignment::Left),
+                    Text::from(format!("{duration:?} mins")).alignment(Alignment::Left),
                 ])
                 .style(Style::new().fg(app.colors.row_fg).bg(color))
                 .height(3)
