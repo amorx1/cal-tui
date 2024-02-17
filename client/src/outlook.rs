@@ -1,11 +1,9 @@
-use std::{sync::mpsc::Sender, time::Duration};
+use std::{fmt, sync::mpsc::Sender, time::Duration};
 
 use chrono::{DateTime, Timelike, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
-
-use crate::{CalendarEvent, EventCommand};
 
 pub async fn refresh(
     token: String,
@@ -53,6 +51,7 @@ pub async fn refresh(
                             .ok()
                             .map(|dt| dt.with_timezone(&Utc::now().timezone()))
                             .unwrap();
+
                             let id = v.id.clone().expect("ERROR: Event has no ID");
                             let is_cancelled = v.is_cancelled;
                             let organizer = v
@@ -70,6 +69,16 @@ pub async fn refresh(
                                 false => None,
                             };
 
+                            let response: Option<EventResponse> =
+                                match v.response_status.response.as_ref() {
+                                    Some(status) => match status.as_ref() {
+                                        "accepted" => Some(EventResponse::Accepted),
+                                        "notResponded" => Some(EventResponse::NotResponded),
+                                        _ => None,
+                                    },
+                                    None => None,
+                                };
+
                             CalendarEvent {
                                 id,
                                 is_cancelled,
@@ -78,6 +87,7 @@ pub async fn refresh(
                                 subject,
                                 organizer,
                                 teams_meeting,
+                                response,
                             }
                         })
                         .filter(|e| e.start_time > Utc::now());
@@ -97,6 +107,39 @@ pub async fn refresh(
 #[derive(Debug, Default, Clone)]
 pub struct TeamsMeeting {
     pub url: String,
+}
+
+#[derive(Debug, Default)]
+pub struct CalendarEvent {
+    pub id: String,
+    pub is_cancelled: bool,
+    pub end_time: DateTime<Utc>,
+    pub start_time: DateTime<Utc>,
+    pub organizer: String,
+    pub subject: String,
+    pub teams_meeting: Option<TeamsMeeting>,
+    pub response: Option<EventResponse>,
+}
+
+#[derive(Debug, Clone)]
+pub enum EventResponse {
+    Accepted,
+    NotResponded,
+}
+
+impl fmt::Display for EventResponse {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            EventResponse::Accepted => write!(f, "Accepted"),
+            EventResponse::NotResponded => write!(f, "Not Responded"),
+            _ => write!(f, "Unknown"),
+        }
+    }
+}
+
+pub enum EventCommand {
+    Add(CalendarEvent),
+    Remove(CalendarEvent),
 }
 
 #[derive(Serialize, Deserialize)]
