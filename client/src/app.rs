@@ -13,7 +13,7 @@ pub enum Focus {
 }
 
 pub struct App {
-    pub state: TableState,
+    pub table_state: TableState,
     pub focus: Focus,
     pub events: BTreeMap<DateTime<Utc>, CalendarEvent>,
     pub colors: TableColors,
@@ -28,7 +28,7 @@ impl App {
             .expect("ERROR: Could not send command to Zellij");
     }
     pub fn next(&mut self) {
-        let i = match self.state.selected() {
+        let i = match self.table_state.selected() {
             Some(i) => {
                 if i >= self.events.len() - 1 {
                     0
@@ -38,11 +38,11 @@ impl App {
             }
             None => 0,
         };
-        self.state.select(Some(i));
+        self.table_state.select(Some(i));
     }
 
     pub fn previous(&mut self) {
-        let i = match self.state.selected() {
+        let i = match self.table_state.selected() {
             Some(i) => {
                 if i == 0 {
                     self.events.len() - 1
@@ -52,6 +52,6 @@ impl App {
             }
             None => 0,
         };
-        self.state.select(Some(i));
+        self.table_state.select(Some(i));
     }
 }

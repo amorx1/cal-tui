@@ -80,7 +80,7 @@ pub fn render_popup(app: &mut App, frame: &mut Frame, area: Rect) {
 }
 
 pub fn render_selection(app: &mut App, frame: &mut Frame, area: Rect) {
-    if let Some(i) = app.state.selected() {
+    if let Some(i) = app.table_state.selected() {
         let text = app
             .events
             .iter()
@@ -88,21 +88,29 @@ pub fn render_selection(app: &mut App, frame: &mut Frame, area: Rect) {
             .map_or(Paragraph::new(""), |(_, event)| {
                 Paragraph::new(Text::styled(
                     format!(
-                        "{}\n{}\n{}\n{}",
+                        "{}\n{}\n{}\n{}\n{}\n{}",
                         event.subject,
+                        event.location,
                         event.organizer,
                         event
                             .teams_meeting
                             .clone()
                             .map_or("".to_string(), |meeting| meeting.url),
-                        event.response.clone().unwrap()
+                        event.response.clone().unwrap(),
+                        event.body
                     ),
                     Style::default().fg(Color::Red).bold(),
                 ))
             });
 
-        let block = Block::default().title("Event").borders(Borders::ALL);
-        let block2 = Block::default().title("Options").borders(Borders::ALL);
+        let block = Block::default()
+            .title("Event")
+            .borders(Borders::ALL)
+            .style(Style::default().fg(Color::Black));
+        let block2 = Block::default()
+            .title("Options")
+            .borders(Borders::ALL)
+            .style(Style::default().fg(Color::Black));
 
         let inner_area = centered_rect(60, 40, area);
         let layout = Layout::default()
@@ -111,8 +119,8 @@ pub fn render_selection(app: &mut App, frame: &mut Frame, area: Rect) {
             .split(inner_area);
 
         let text2 = Paragraph::new(Text::raw("\nACCEPT | REJECT")).alignment(Alignment::Center);
-        frame.render_widget(Clear, area); //this clears out the background
-        frame.render_widget(Block::default().bg(Color::LightBlue), area);
+        frame.render_widget(Clear, area);
+        frame.render_widget(Block::default().bg(Color::White), area);
         frame.render_widget(text.block(block), layout[0]);
         frame.render_widget(text2.block(block2), layout[1]);
     }
@@ -155,17 +163,14 @@ pub fn render_table(app: &mut App, frame: &mut Frame, area: Rect) {
 
         let duration = &e.end_time.signed_duration_since(e.start_time).num_minutes();
         let subject = e.subject.clone();
-        // let (date, time) = reformat_time(&e.start_time);
         let local_dt: DateTime<Local> = DateTime::from(e.start_time);
         let date = local_dt.date_naive();
         let time = local_dt.time();
 
         Row::new(vec![
-            Text::from(subject)
-                .style(Style::default().bold())
-                .alignment(Alignment::Left),
-            Text::from(format!("{date:?} @ {time:?}")).alignment(Alignment::Left),
-            Text::from(format!("{duration:?} mins")).alignment(Alignment::Left),
+            Cell::new(Span::from(subject)).style(Style::default().bold()),
+            Cell::new(Span::from(format!("{date:?} @ {time:?}"))),
+            Cell::new(Span::from(format!("{duration:?} mins"))),
         ])
         .style(Style::new().fg(app.colors.row_fg).bg(color))
         .height(3)
@@ -181,5 +186,5 @@ pub fn render_table(app: &mut App, frame: &mut Frame, area: Rect) {
         .bg(app.colors.buffer_bg)
         .highlight_style(selected_style);
 
-    frame.render_stateful_widget(table, layout[0], &mut app.state);
+    frame.render_stateful_widget(table, layout[0], &mut app.table_state);
 }

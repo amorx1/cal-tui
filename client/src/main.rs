@@ -70,7 +70,7 @@ fn main() -> io::Result<()> {
     let app = App {
         events: BTreeMap::new(),
         colors: TableColors::new(&PALETTES[8]),
-        state: TableState::default().with_selected(0),
+        table_state: TableState::default().with_selected(0),
         focus: Focus::Table,
     };
 
@@ -112,6 +112,8 @@ fn run_app<B: Backend>(
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') => return Ok(()),
+                        KeyCode::Char('h') => app.focus = Focus::Table,
+                        KeyCode::Char('l') => app.focus = Focus::Selected,
                         KeyCode::Char('j') | KeyCode::Down => match app.focus {
                             Focus::Table => app.next(),
                             _ => {}
@@ -120,13 +122,6 @@ fn run_app<B: Backend>(
                             Focus::Table => app.previous(),
                             _ => {}
                         },
-                        KeyCode::Enter => {
-                            app.focus = match app.focus {
-                                Focus::Table => Focus::Selected,
-                                Focus::Selected => Focus::Table,
-                                Focus::Popup => Focus::Table,
-                            }
-                        }
                         _ => (),
                     }
                 }

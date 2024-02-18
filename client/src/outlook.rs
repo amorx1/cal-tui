@@ -18,7 +18,7 @@ pub async fn refresh(
             start, end
         );
 
-        if Utc::now().second() % 10 == 0 {
+        if Utc::now().second() % 5 == 0 {
             // refresh
             let response = client
                 .get(url)
@@ -79,8 +79,19 @@ pub async fn refresh(
                                     None => None,
                                 };
 
+                            let location = v
+                                .location
+                                .clone()
+                                .unwrap_or_default()
+                                .display_name
+                                .unwrap_or_default();
+
+                            let body = v.body_preview.clone().unwrap_or_default();
+
                             CalendarEvent {
                                 id,
+                                body,
+                                location,
                                 is_cancelled,
                                 start_time,
                                 end_time,
@@ -90,7 +101,7 @@ pub async fn refresh(
                                 response,
                             }
                         })
-                        .filter(|e| e.start_time > Utc::now());
+                        .filter(|e| !e.is_cancelled && e.start_time > Utc::now());
 
                     for event in calendar_events {
                         event_tx
@@ -112,6 +123,8 @@ pub struct TeamsMeeting {
 #[derive(Debug, Default)]
 pub struct CalendarEvent {
     pub id: String,
+    pub body: String,
+    pub location: String,
     pub is_cancelled: bool,
     pub end_time: DateTime<Utc>,
     pub start_time: DateTime<Utc>,
@@ -132,7 +145,6 @@ impl fmt::Display for EventResponse {
         match self {
             EventResponse::Accepted => write!(f, "Accepted"),
             EventResponse::NotResponded => write!(f, "Not Responded"),
-            _ => write!(f, "Unknown"),
         }
     }
 }
@@ -213,7 +225,7 @@ pub struct ResponseStatus {
     pub time: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Body {
     pub content_type: Option<String>,
@@ -234,13 +246,13 @@ pub struct End {
     pub time_zone: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Location {
-    pub display_name: Option<Option<String>>,
-    pub location_type: Option<Option<String>>,
-    pub unique_id: Option<Option<String>>,
-    pub unique_id_type: Option<Option<String>>,
+    pub display_name: Option<String>,
+    pub location_type: Option<String>,
+    pub unique_id: Option<String>,
+    pub unique_id_type: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
