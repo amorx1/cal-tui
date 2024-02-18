@@ -155,6 +155,9 @@ pub fn render_table(app: &mut App, frame: &mut Frame, area: Rect) {
     .style(header_style)
     .height(2);
 
+    let footer =
+        Row::new(Text::from("open/close: l/h | ↕: k/j").alignment(Alignment::Center)).height(1);
+
     let rows = app.events.iter().enumerate().map(|(i, (_, e))| {
         let color = match i % 2 {
             0 => app.colors.normal_row_color,
@@ -183,6 +186,7 @@ pub fn render_table(app: &mut App, frame: &mut Frame, area: Rect) {
     ];
     let table = Table::new(rows, widths)
         .header(header)
+        .footer(footer)
         .bg(app.colors.buffer_bg)
         .highlight_style(selected_style);
 

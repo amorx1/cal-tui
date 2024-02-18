@@ -1,21 +1,29 @@
 use std::{fmt, sync::mpsc::Sender, time::Duration};
 
-use chrono::{DateTime, Timelike, Utc};
+use chrono::{DateTime, Days, Timelike, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
-pub async fn refresh(
-    token: String,
-    start: String,
-    end: String,
-    client: Client,
-    event_tx: Sender<EventCommand>,
-) {
+pub async fn refresh(token: String, client: Client, event_tx: Sender<EventCommand>) {
     loop {
+        let start = Utc::now();
+        let end = start.checked_add_days(Days::new(7)).unwrap();
+
+        let start_arg = format!(
+            "{}T{}",
+            start.date_naive(),
+            start.time().to_string().rsplit_once(':').unwrap().0
+        );
+        let end_arg = format!(
+            "{}T{}",
+            end.date_naive(),
+            start.time().to_string().rsplit_once(':').unwrap().0,
+        );
+
         let url = format!(
             "https://graph.microsoft.com/v1.0/me/calendarView?startDateTime={}&endDateTime={}",
-            start, end
+            start_arg, end_arg
         );
 
         if Utc::now().second() % 5 == 0 {
