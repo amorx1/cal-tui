@@ -1,17 +1,15 @@
-use std::{collections::BTreeMap, process::Command, time::Duration};
-
-use chrono::{DateTime, Utc};
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use ratatui::{
-    backend::Backend, style::palette::tailwind::Palette, widgets::TableState, Frame, Terminal,
-};
-use tokio::{io, time::sleep};
-
 use crate::{
     backend::Backend as AppBackend,
     outlook::{CalendarEvent, EventCommand},
     ui::{render_popup, render_selection, render_table, TableColors},
 };
+use chrono::{DateTime, Utc};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use ratatui::{
+    backend::Backend, style::palette::tailwind::Palette, widgets::TableState, Frame, Terminal,
+};
+use std::{collections::BTreeMap, process::Command, time::Duration};
+use tokio::{io, time::sleep};
 
 #[derive(Clone, Copy)]
 pub enum Focus {
@@ -112,11 +110,11 @@ impl App {
         self.focus = focus;
     }
 
-    pub fn poll_calendar_events(&mut self) -> Option<EventCommand> {
+    pub fn poll_calendar_events(&self) -> Option<EventCommand> {
         self.backend.event_rx.try_iter().next()
     }
 
-    pub fn spawn_timer(&mut self, end: DateTime<Utc>) {
+    pub fn spawn_timer(&self, end: DateTime<Utc>) {
         let eta = end
             .checked_sub_signed(chrono::Duration::minutes(2)) // TODO: Make reminder offset configurable
             .map(|x| x.signed_duration_since(Utc::now()).num_milliseconds())
@@ -131,7 +129,7 @@ impl App {
         });
     }
 
-    pub fn poll_timers(&mut self) -> bool {
+    pub fn poll_timers(&self) -> bool {
         self.backend.timer_rx.try_recv().is_ok()
     }
 

@@ -1,15 +1,13 @@
-use std::{
-    sync::mpsc::{channel, Receiver, Sender},
-    time::Duration,
-};
-
-use reqwest::Client;
-use tokio::runtime::{self, Runtime};
-
 use crate::{
     auth::start_server_main,
     outlook::{refresh, EventCommand},
 };
+use reqwest::Client;
+use std::{
+    sync::mpsc::{channel, Receiver, Sender},
+    time::Duration,
+};
+use tokio::runtime::{self, Runtime};
 
 pub struct Backend {
     pub auth: Runtime,
