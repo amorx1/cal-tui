@@ -22,12 +22,9 @@ fn main() -> io::Result<()> {
     stdout().execute(EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
-    let mut backend = Backend::new();
-    let (event_rx, timer_tx, timer_rx) = backend.init();
-    let app = App::new(&PALETTES[8]);
-
-    app.run(&mut terminal, backend.data, event_rx, timer_tx, timer_rx)
-        .unwrap();
+    let backend = Backend::new();
+    let app = App::new(&PALETTES[8], backend);
+    app.run(&mut terminal).unwrap();
 
     disable_raw_mode()?;
     stdout().execute(LeaveAlternateScreen)?;

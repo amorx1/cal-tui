@@ -15,6 +15,10 @@ pub struct Backend {
     pub auth: Runtime,
     pub data: Runtime,
     pub timer: Runtime,
+    pub event_tx: Sender<EventCommand>,
+    pub event_rx: Receiver<EventCommand>,
+    pub timer_tx: Sender<()>,
+    pub timer_rx: Receiver<()>,
 }
 
 impl Backend {
@@ -40,11 +44,22 @@ impl Backend {
             .build()
             .unwrap();
 
-        Self { auth, data, timer }
+        let (event_tx, event_rx) = channel();
+        let (timer_tx, timer_rx) = channel();
+
+        Self {
+            auth,
+            data,
+            timer,
+            event_tx,
+            event_rx,
+            timer_tx,
+            timer_rx,
+        }
     }
 
-    pub fn init(&mut self) -> (Receiver<EventCommand>, Sender<()>, Receiver<()>) {
-        // OAuth Listener
+    pub fn start(&self) {
+        // Auth thread
         let (auth_tx, auth_rx) = channel();
         self.auth
             .spawn(async move { start_server_main(auth_tx).await });
@@ -53,12 +68,8 @@ impl Backend {
             .expect("ERROR: Unsuccessful authentication!");
 
         // Data refresh thread
-        let (event_tx, event_rx) = channel();
+        let event_tx = self.event_tx.clone();
         self.data
             .spawn(async move { refresh(token, Client::new(), event_tx).await });
-
-        let (timer_tx, timer_rx) = channel();
-
-        (event_rx, timer_tx, timer_rx)
     }
 }
