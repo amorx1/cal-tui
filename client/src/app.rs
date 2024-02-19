@@ -1,6 +1,6 @@
 use crate::{
     backend::Backend as AppBackend,
-    outlook::{CalendarEvent, EventCommand},
+    outlook::CalendarEvent,
     ui::{render_popup, render_selection, render_table, TableColors},
 };
 use chrono::{DateTime, Utc};
@@ -67,13 +67,9 @@ impl App {
             }
 
             // Listen for new events from refresh thread.
-            while let Some(command) = self.poll_calendar_events() {
-                if let EventCommand::Add(event) = command {
-                    // None -> event didn't already exist, so it is safe to create a new timer for it without duplicating.
-                    let start_time = event.start_time;
-                    if self.events.insert(start_time, event).is_none() {
-                        self.spawn_timer(start_time);
-                    }
+            while let Some(event) = self.poll_calendar_events() {
+                if let Some(time) = self.add_event(event) {
+                    self.spawn_timer(time);
                 }
             }
 
@@ -105,12 +101,19 @@ impl App {
             }
         }
     }
+    pub fn add_event(&mut self, event: CalendarEvent) -> Option<DateTime<Utc>> {
+        let start_time = event.start_time;
+        if self.events.insert(start_time, event).is_none() {
+            return Some(start_time);
+        }
+        None
+    }
 
     pub fn set_focus(&mut self, focus: Focus) {
         self.focus = focus;
     }
 
-    pub fn poll_calendar_events(&self) -> Option<EventCommand> {
+    pub fn poll_calendar_events(&self) -> Option<CalendarEvent> {
         self.backend.event_rx.try_iter().next()
     }
 

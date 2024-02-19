@@ -5,7 +5,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
-pub async fn refresh(token: String, client: Client, event_tx: Sender<EventCommand>) {
+pub async fn refresh(token: String, client: Client, event_tx: Sender<CalendarEvent>) {
     loop {
         let start = Utc::now();
         let end = start.checked_add_days(Days::new(7)).unwrap();
@@ -113,7 +113,7 @@ pub async fn refresh(token: String, client: Client, event_tx: Sender<EventComman
 
                     for event in calendar_events {
                         event_tx
-                            .send(EventCommand::Add(event))
+                            .send(event)
                             .expect("ERROR: Could not send message to main thread");
                     }
                 }
@@ -155,11 +155,6 @@ impl fmt::Display for EventResponse {
             EventResponse::NotResponded => write!(f, "Not Responded"),
         }
     }
-}
-
-pub enum EventCommand {
-    Add(CalendarEvent),
-    Remove(CalendarEvent),
 }
 
 #[derive(Serialize, Deserialize)]

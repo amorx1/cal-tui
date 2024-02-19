@@ -5,7 +5,7 @@ use ratatui::{
 };
 use style::palette::tailwind;
 
-use crate::App;
+use crate::{outlook::EventResponse, App};
 
 pub const PALETTES: [tailwind::Palette; 9] = [
     tailwind::BLUE,
@@ -27,7 +27,7 @@ pub struct TableColors {
     selected_style_fg: Color,
     normal_row_color: Color,
     alt_row_color: Color,
-    footer_border_color: Color,
+    // footer_border_color: Color,
 }
 
 impl TableColors {
@@ -40,7 +40,7 @@ impl TableColors {
             selected_style_fg: color.c400,
             normal_row_color: color.c950,
             alt_row_color: color.c900,
-            footer_border_color: color.c400,
+            // footer_border_color: color.c400,
         }
     }
 }
@@ -96,7 +96,10 @@ pub fn render_selection(app: &mut App, frame: &mut Frame, area: Rect) {
                             .teams_meeting
                             .clone()
                             .map_or("".to_string(), |meeting| meeting.url),
-                        event.response.clone().unwrap(),
+                        event
+                            .response
+                            .clone()
+                            .unwrap_or(EventResponse::NotResponded),
                         event.body
                     ),
                     Style::default().fg(Color::Red).bold(),
@@ -120,7 +123,7 @@ pub fn render_selection(app: &mut App, frame: &mut Frame, area: Rect) {
 
         let text2 = Paragraph::new(Text::raw("\nACCEPT | REJECT")).alignment(Alignment::Center);
         frame.render_widget(Clear, area);
-        frame.render_widget(Block::default().bg(Color::White), area);
+        frame.render_widget(Block::default().bg(Color::Rgb(64, 188, 252)), area);
         frame.render_widget(text.block(block), layout[0]);
         frame.render_widget(text2.block(block2), layout[1]);
     }
@@ -155,8 +158,9 @@ pub fn render_table(app: &mut App, frame: &mut Frame, area: Rect) {
     .style(header_style)
     .height(2);
 
-    let footer =
-        Row::new(Text::from("open/close: l/h | ↕: k/j").alignment(Alignment::Center)).height(1);
+    let footer = Row::new(vec![Cell::from("up/down: k/j | open/close: l/h").bold()])
+        .height(1)
+        .top_margin(0);
 
     let rows = app.events.iter().enumerate().map(|(i, (_, e))| {
         let color = match i % 2 {
@@ -180,9 +184,9 @@ pub fn render_table(app: &mut App, frame: &mut Frame, area: Rect) {
     });
 
     let widths = [
-        Constraint::Length(100),
-        Constraint::Length(100),
-        Constraint::Length(50),
+        Constraint::Min(75),
+        Constraint::Min(100),
+        Constraint::Min(35),
     ];
     let table = Table::new(rows, widths)
         .header(header)

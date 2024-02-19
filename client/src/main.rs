@@ -20,8 +20,8 @@ fn main() -> io::Result<()> {
     dotenv().ok();
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
+    let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     let backend = Backend::new();
     let app = App::new(&PALETTES[8], backend);
     app.run(&mut terminal).unwrap();

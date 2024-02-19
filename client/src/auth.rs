@@ -69,7 +69,7 @@ pub async fn handle_redirect(
     ))
 }
 
-pub async fn start_server_main(tx: Sender<String>) {
+pub async fn start_auth_server(tx: Sender<String>) {
     let cors = warp::cors().allow_any_origin();
 
     let routes = warp::post()

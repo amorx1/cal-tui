@@ -1,6 +1,6 @@
 use crate::{
-    auth::start_server_main,
-    outlook::{refresh, EventCommand},
+    auth::start_auth_server,
+    outlook::{refresh, CalendarEvent},
 };
 use reqwest::Client;
 use std::{
@@ -13,8 +13,8 @@ pub struct Backend {
     pub auth: Runtime,
     pub data: Runtime,
     pub timer: Runtime,
-    pub event_tx: Sender<EventCommand>,
-    pub event_rx: Receiver<EventCommand>,
+    pub event_tx: Sender<CalendarEvent>,
+    pub event_rx: Receiver<CalendarEvent>,
     pub timer_tx: Sender<()>,
     pub timer_rx: Receiver<()>,
 }
@@ -60,12 +60,12 @@ impl Backend {
         // Auth thread
         let (auth_tx, auth_rx) = channel();
         self.auth
-            .spawn(async move { start_server_main(auth_tx).await });
+            .spawn(async move { start_auth_server(auth_tx).await });
         let token = auth_rx
             .recv_timeout(Duration::from_millis(10000))
             .expect("ERROR: Unsuccessful authentication!");
 
-        // Data refresh thread
+        // Start data refresh thread
         let event_tx = self.event_tx.clone();
         self.data
             .spawn(async move { refresh(token, Client::new(), event_tx).await });
