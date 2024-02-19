@@ -184,9 +184,9 @@ pub fn render_table(app: &mut App, frame: &mut Frame, area: Rect) {
     });
 
     let widths = [
-        Constraint::Min(75),
-        Constraint::Min(100),
-        Constraint::Min(35),
+        Constraint::Percentage(40),
+        Constraint::Percentage(45),
+        Constraint::Percentage(15),
     ];
     let table = Table::new(rows, widths)
         .header(header)
