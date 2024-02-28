@@ -9,6 +9,9 @@ use std::{
 };
 use tokio::runtime::{self, Runtime};
 
+// In milliseconds
+static AUTH_TIMEOUT: u64 = 10000;
+
 pub struct Backend {
     pub auth: Runtime,
     pub data: Runtime,
@@ -62,7 +65,7 @@ impl Backend {
         self.auth
             .spawn(async move { start_auth_server(auth_tx).await });
         let token = auth_rx
-            .recv_timeout(Duration::from_millis(10000))
+            .recv_timeout(Duration::from_millis(AUTH_TIMEOUT))
             .expect("ERROR: Unsuccessful authentication!");
 
         // Start data refresh thread

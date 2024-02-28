@@ -11,10 +11,12 @@ mod app;
 mod auth;
 mod outlook;
 use app::App;
-mod ui;
-use ui::PALETTES;
 mod backend;
+mod ui;
 use backend::*;
+
+// TODO: Enumerate possibilities in README
+static THEME: usize = 8;
 
 fn main() -> io::Result<()> {
     dotenv().ok();
@@ -23,7 +25,8 @@ fn main() -> io::Result<()> {
 
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     let backend = Backend::new();
-    let app = App::new(&PALETTES[8], backend);
+    let app = App::new(THEME, backend);
+
     app.run(&mut terminal).unwrap();
 
     disable_raw_mode()?;

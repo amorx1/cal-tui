@@ -5,10 +5,14 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
+static BASE_URL: &str = "https://graph.microsoft.com/v1.0/me/calendarView";
+static REFRESH_PERIOD: u32 = 5;
+static N_DAYS: u64 = 7;
+
 pub async fn refresh(token: String, client: Client, event_tx: Sender<CalendarEvent>) {
     loop {
         let start = Utc::now();
-        let end = start.checked_add_days(Days::new(7)).unwrap();
+        let end = start.checked_add_days(Days::new(N_DAYS)).unwrap();
 
         let start_arg = format!(
             "{}T{}",
@@ -22,11 +26,11 @@ pub async fn refresh(token: String, client: Client, event_tx: Sender<CalendarEve
         );
 
         let url = format!(
-            "https://graph.microsoft.com/v1.0/me/calendarView?startDateTime={}&endDateTime={}",
-            start_arg, end_arg
+            "{}?startDateTime={}&endDateTime={}",
+            BASE_URL, start_arg, end_arg
         );
 
-        if Utc::now().second() % 5 == 0 {
+        if Utc::now().second() % REFRESH_PERIOD == 0 {
             // refresh
             let response = client
                 .get(url)

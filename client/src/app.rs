@@ -1,15 +1,16 @@
 use crate::{
     backend::Backend as AppBackend,
     outlook::CalendarEvent,
-    ui::{render_popup, render_selection, render_table, TableColors},
+    ui::{render_popup, render_selection, render_table, TableColors, PALETTES},
 };
 use chrono::{DateTime, Utc};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use ratatui::{
-    backend::Backend, style::palette::tailwind::Palette, widgets::TableState, Frame, Terminal,
-};
+use ratatui::{backend::Backend, widgets::TableState, Frame, Terminal};
 use std::{collections::BTreeMap, process::Command, time::Duration};
 use tokio::{io, time::sleep};
+
+// In minutes
+static NOTIFICATION_PERIOD: i64 = 2;
 
 #[derive(Clone, Copy)]
 pub enum Focus {
@@ -27,11 +28,11 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(theme: &Palette, backend: AppBackend) -> Self {
+    pub fn new(theme: usize, backend: AppBackend) -> Self {
         backend.start();
         Self {
             events: BTreeMap::new(),
-            colors: TableColors::new(theme),
+            colors: TableColors::new(&PALETTES[theme]),
             table_state: TableState::default().with_selected(0),
             focus: Focus::Table,
             backend,
@@ -78,7 +79,7 @@ impl App {
                 self.popup();
             }
 
-            // Clear past events
+            // Clear expired events
             self.events.retain(|_, event| event.end_time >= Utc::now());
         }
     }
@@ -119,7 +120,7 @@ impl App {
 
     pub fn spawn_timer(&self, end: DateTime<Utc>) {
         let eta = end
-            .checked_sub_signed(chrono::Duration::minutes(2)) // TODO: Make reminder offset configurable
+            .checked_sub_signed(chrono::Duration::minutes(NOTIFICATION_PERIOD)) // TODO: Make reminder offset configurable
             .map(|x| x.signed_duration_since(Utc::now()).num_milliseconds())
             .unwrap();
 
