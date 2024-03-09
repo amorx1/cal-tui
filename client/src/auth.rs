@@ -1,16 +1,14 @@
-use std::{collections::HashMap, env, sync::mpsc::Sender};
+use std::{collections::HashMap, sync::mpsc::Sender};
 
 use graph_oauth::oauth::{AccessToken, IdToken, OAuth};
 use warp::Filter;
 
+use crate::CONFIG;
+
 pub fn oauth_open_id() -> OAuth {
     let mut oauth = OAuth::new();
     oauth
-        .client_id(
-            env::var("CLIENT_ID")
-                .expect("No CLIENT_ID provided")
-                .as_ref(),
-        )
+        .client_id(CONFIG.get().unwrap().outlook.client_id.as_str())
         .authorize_url("https://login.microsoftonline.com/common/oauth2/v2.0/authorize")
         .redirect_uri("http://localhost:8000/redirect")
         .access_token_url("https://login.microsoftonline.com/common/oauth2/v2.0/token")

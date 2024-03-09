@@ -2,10 +2,12 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
-use dotenv::dotenv;
 use ratatui::{backend::CrosstermBackend, Terminal};
 
-use std::io::{self, stdout};
+use std::{
+    io::{self, stdout},
+    sync::OnceLock,
+};
 
 mod app;
 mod auth;
@@ -15,17 +17,21 @@ mod backend;
 mod ui;
 use backend::*;
 
+use crate::app::Config;
+
 // TODO: Enumerate possibilities in README
-static THEME: usize = 8;
+static CONFIG_PATH: &str = "$HOME/.config/cal-tui/config.toml";
+static CONFIG: OnceLock<Config> = OnceLock::new();
 
 fn main() -> io::Result<()> {
-    dotenv().ok();
+    CONFIG.get_or_init(Config::from_path);
+
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
 
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     let backend = Backend::new();
-    let app = App::new(THEME, backend);
+    let app = App::new(backend);
 
     app.run(&mut terminal).unwrap();
 

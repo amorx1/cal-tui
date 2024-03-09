@@ -5,14 +5,14 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
-static BASE_URL: &str = "https://graph.microsoft.com/v1.0/me/calendarView";
-static REFRESH_PERIOD: u32 = 5;
-static N_DAYS: u64 = 7;
+use crate::CONFIG;
 
 pub async fn refresh(token: String, client: Client, event_tx: Sender<CalendarEvent>) {
     loop {
         let start = Utc::now();
-        let end = start.checked_add_days(Days::new(N_DAYS)).unwrap();
+        let end = start
+            .checked_add_days(Days::new(CONFIG.get().unwrap().limit_days))
+            .unwrap();
 
         let start_arg = format!(
             "{}T{}",
@@ -27,10 +27,12 @@ pub async fn refresh(token: String, client: Client, event_tx: Sender<CalendarEve
 
         let url = format!(
             "{}?startDateTime={}&endDateTime={}",
-            BASE_URL, start_arg, end_arg
+            CONFIG.get().unwrap().outlook.base_url,
+            start_arg,
+            end_arg
         );
 
-        if Utc::now().second() % REFRESH_PERIOD == 0 {
+        if Utc::now().second() % CONFIG.get().unwrap().refresh_period_seconds == 0 {
             // refresh
             let response = client
                 .get(url)

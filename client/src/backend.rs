@@ -1,6 +1,7 @@
 use crate::{
     auth::start_auth_server,
     outlook::{refresh, CalendarEvent},
+    CONFIG,
 };
 use reqwest::Client;
 use std::{
@@ -8,9 +9,6 @@ use std::{
     time::Duration,
 };
 use tokio::runtime::{self, Runtime};
-
-// In milliseconds
-static AUTH_TIMEOUT: u64 = 10000;
 
 pub struct Backend {
     pub auth: Runtime,
@@ -65,7 +63,9 @@ impl Backend {
         self.auth
             .spawn(async move { start_auth_server(auth_tx).await });
         let token = auth_rx
-            .recv_timeout(Duration::from_millis(AUTH_TIMEOUT))
+            .recv_timeout(Duration::from_millis(
+                CONFIG.get().unwrap().auth_timeout_millis,
+            ))
             .expect("ERROR: Unsuccessful authentication!");
 
         // Start data refresh thread
