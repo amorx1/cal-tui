@@ -6,7 +6,7 @@ A TUI interface to view calendar events within the terminal. Intended for users 
 ## Features
 - [x] OAuth2.0 Authentication
 - [x] Popup Notifications (Zellij Integration)
-- [] Providers:
+- [ ] Providers:
   - [x] Outlook
-  - [] Gmail
-  - [] iCloud
+  - [ ] Gmail
+  - [ ] iCloud
