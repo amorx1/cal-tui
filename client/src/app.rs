@@ -194,7 +194,10 @@ pub struct OutlookConfig {
 impl Config {
     pub fn from_path() -> Self {
         let home = std::env::var_os("HOME").expect("ERROR: No HOME OS variable found!");
-        let config_path = CONFIG_PATH.replace("$HOME", home.to_str().unwrap());
+        let config_path = CONFIG_PATH
+            .get()
+            .expect("ERROR: No config path resolved!")
+            .replace("$HOME", home.to_str().unwrap());
         let file =
             std::fs::read_to_string(config_path).expect("ERROR: Could not read config file!");
         toml::from_str(&file).unwrap()

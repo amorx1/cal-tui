@@ -19,11 +19,18 @@ use backend::*;
 
 use crate::app::Config;
 
-// TODO: Enumerate possibilities in README
-static CONFIG_PATH: &str = "$HOME/.config/cal-tui/config.toml";
+// static CONFIG_PATH: &str = "$HOME/.config/cal-tui/config.toml";
+static CONFIG_PATH: OnceLock<&str> = OnceLock::new();
 static CONFIG: OnceLock<Config> = OnceLock::new();
 
 fn main() -> io::Result<()> {
+    CONFIG_PATH.get_or_init(|| {
+        if cfg!(unix) {
+            "$HOME/.config/cal-tui/config.toml"
+        } else {
+            "%APPDATA%\\cal-tui\\config.toml"
+        }
+    });
     CONFIG.get_or_init(Config::from_path);
 
     enable_raw_mode()?;

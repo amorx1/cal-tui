@@ -130,6 +130,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2bd12c1caf447e69cd4528f47f94d203fd2582878ecb9e9465484c4148a8223"
 
 [[package]]
+name = "cal-tui"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "crossterm",
+ "graph-oauth",
+ "ratatui",
+ "reqwest",
+ "serde",
+ "tokio",
+ "toml",
+ "warp",
+]
+
+[[package]]
 name = "cassowary"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -187,21 +202,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "799627e6b4d27827a814e837b9d8a504832086081806d45b1afa34dc982b023b"
 dependencies = [
  "chrono",
-]
-
-[[package]]
-name = "client"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "crossterm",
- "graph-oauth",
- "ratatui",
- "reqwest",
- "serde",
- "tokio",
- "toml",
- "warp",
 ]
 
 [[package]]
